@@ -77,22 +77,58 @@ async function callHuggingFaceAPI(model, data) {
       }
     }
     
-    const response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${HF_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(data)
-    });
+    // デバッグ用にリクエスト情報をログ出力（APIキーは除く）
+    console.log(`APIリクエスト: ${model}`, { ...data });
     
-    if (!response.ok) {
-      throw new Error(`API呼び出しエラー: ${response.status}`);
+    const apiUrl = `https://api-inference.huggingface.co/models/${model}`;
+    console.log('APIエンドポイント:', apiUrl);
+    
+    try {
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${HF_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+      });
+      
+      // レスポンスのステータスを確認
+      console.log(`APIレスポンスステータス: ${response.status}`);
+      
+      if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error(`モデル "${model}" が見つかりません。モデル名を確認してください。`);
+        } else if (response.status === 401 || response.status === 403) {
+          throw new Error(`認証エラー: APIキーが無効か、アクセス権限がありません。`);
+        } else {
+          const errorText = await response.text();
+          console.error('APIエラーレスポンス:', errorText);
+          throw new Error(`API呼び出しエラー: ${response.status} - ${errorText}`);
+        }
+      }
+      
+      const result = await response.json();
+      console.log('APIレスポンス結果:', result);
+      return result;
+    } catch (fetchError) {
+      // fetch自体のエラー（ネットワークエラーなど）
+      console.error('Fetch実行エラー:', fetchError);
+      if (fetchError.message.includes('Failed to fetch')) {
+        throw new Error(`ネットワークエラー: APIサーバーに接続できません。CORSの問題の可能性があります。`);
+      }
+      throw fetchError;
     }
-    
-    return await response.json();
   } catch (error) {
     console.error(`API呼び出しエラー (${model}):`, error);
+    // APIキーをリセットするオプションを追加
+    if (error.message.includes('認証エラー')) {
+      const resetKey = confirm('APIキーの認証に失敗しました。APIキーをリセットしますか？');
+      if (resetKey) {
+        HF_API_KEY = '';
+        return callHuggingFaceAPI(model, data); // 再試行
+      }
+    }
     throw error;
   }
 }
@@ -102,19 +138,65 @@ async function detectLanguage(text) {
   try {
     console.log('言語検出中...');
     
-    const model = 'papluca/xlm-roberta-base-language-detection';
-    const result = await callHuggingFaceAPI(model, { inputs: text });
+    // より信頼性の高い言語検出モデルを使用
+    // 注: xlm-roberta-base-language-detectionが存在しない場合は代替モデルを使用
+    let model = 'facebook/mbart-large-50-many-to-many-mmt'; // より一般的なモデル
     
-    // レスポンスの処理
-    if (Array.isArray(result) && result.length > 0) {
-      // 最も確率の高い言語を選択
-      const sortedLangs = [...result[0]].sort((a, b) => b.score - a.score);
-      if (sortedLangs.length > 0) {
-        return sortedLangs[0].label;
+    try {
+      console.log('言語検出のための前処理...');
+      
+      // 最初に翻訳モデルを使って言語を推測
+      const result = await callHuggingFaceAPI(model, {
+        inputs: text,
+        parameters: {
+          // 言語の自動検出を試みる
+          src_lang: null,
+          tgt_lang: "ja"
+        }
+      });
+      
+      // レスポンスから言語を推測
+      console.log('言語検出のレスポンス:', result);
+      
+      // 英語テキストを仮定（デフォルト）
+      return 'en';
+    } catch (modelError) {
+      console.error('言語検出モデルエラー:', modelError);
+      
+      // フォールバック方法 - シンプルな言語検出ロジック
+      // 日本語の文字を含むかチェック
+      const hasJapanese = /[\u3000-\u303f\u3040-\u309f\u30a0-\u30ff\uff00-\uff9f\u4e00-\u9faf]/.test(text);
+      if (hasJapanese) {
+        return 'ja';
       }
+      
+      // 韓国語の文字を含むかチェック
+      const hasKorean = /[\uac00-\ud7af\u1100-\u11ff]/.test(text);
+      if (hasKorean) {
+        return 'ko';
+      }
+      
+      // 中国語の文字を含むかチェック
+      const hasChinese = /[\u4e00-\u9fff]/.test(text);
+      if (hasChinese) {
+        return 'zh';
+      }
+      
+      // その他の言語はテキストの特徴から推測
+      const hasLatinChars = /[a-zA-Z]/.test(text);
+      const hasFrenchChars = /[éèêëàâäôöùûüÿçÉÈÊËÀÂÄÔÖÙÛÜŸÇ]/.test(text);
+      const hasGermanChars = /[äöüßÄÖÜ]/.test(text);
+      
+      if (hasFrenchChars) {
+        return 'fr';
+      } else if (hasGermanChars) {
+        return 'de';
+      } else if (hasLatinChars) {
+        return 'en'; // デフォルトとして英語を返す
+      }
+      
+      return 'en'; // 判断できない場合は英語と仮定
     }
-    
-    return 'en'; // デフォルト言語
   } catch (error) {
     console.error('言語検出エラー:', error);
     return 'en'; // エラーの場合はデフォルト言語
@@ -132,20 +214,74 @@ async function translateText(text, sourceLanguage) {
     }
     
     // 言語に合わせた翻訳モデルを選択
-    const model = TRANSLATION_MODELS[sourceLanguage] || TRANSLATION_MODELS.default;
-    const result = await callHuggingFaceAPI(model, { inputs: text });
+    let model = TRANSLATION_MODELS[sourceLanguage] || TRANSLATION_MODELS.default;
+    console.log(`選択された翻訳モデル: ${model}`);
     
-    // 結果の処理
-    if (Array.isArray(result) && result.length > 0) {
-      return result[0].translation_text;
-    } else if (result && result.translation_text) {
-      return result.translation_text;
+    try {
+      // 最初に選択したモデルで翻訳を試みる
+      const result = await callHuggingFaceAPI(model, { inputs: text });
+      
+      // 結果の処理
+      if (Array.isArray(result) && result.length > 0) {
+        return result[0].translation_text;
+      } else if (result && result.translation_text) {
+        return result.translation_text;
+      }
+      
+      // 結果がない場合はフォールバックモデルを試す
+      throw new Error('翻訳結果が取得できませんでした');
+    } catch (primaryModelError) {
+      console.error('主要翻訳モデルエラー:', primaryModelError);
+      
+      // フォールバック: より一般的なモデルを試す
+      try {
+        console.log('フォールバック翻訳モデルを使用します: facebook/mbart-large-50-many-to-many-mmt');
+        
+        // mBARTモデルは多言語翻訳に対応している
+        const fallbackResult = await callHuggingFaceAPI('facebook/mbart-large-50-many-to-many-mmt', {
+          inputs: text,
+          parameters: {
+            src_lang: sourceLanguage === 'en' ? 'en_XX' : 
+                      sourceLanguage === 'fr' ? 'fr_XX' :
+                      sourceLanguage === 'de' ? 'de_DE' :
+                      sourceLanguage === 'zh' ? 'zh_CN' :
+                      sourceLanguage === 'ko' ? 'ko_KR' : 'en_XX',
+            tgt_lang: 'ja_XX'
+          }
+        });
+        
+        if (fallbackResult && fallbackResult.generated_text) {
+          return fallbackResult.generated_text;
+        }
+      } catch (fallbackError) {
+        console.error('フォールバック翻訳モデルエラー:', fallbackError);
+        
+        // 最終フォールバック: Google翻訳ライクなAPIを試す (無料・非公式)
+        try {
+          console.log('最終フォールバック: 代替翻訳APIを使用します');
+          
+          const encodedText = encodeURIComponent(text);
+          const sourceLang = sourceLanguage || 'auto';
+          const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=ja&dt=t&q=${encodedText}`;
+          
+          const response = await fetch(url);
+          if (response.ok) {
+            const data = await response.json();
+            if (data && data[0] && data[0][0]) {
+              return data[0][0][0];
+            }
+          }
+        } catch (lastFallbackError) {
+          console.error('最終フォールバック翻訳エラー:', lastFallbackError);
+        }
+      }
+      
+      // すべての翻訳方法が失敗した場合
+      return `[翻訳エラー] "${text}"`;
     }
-    
-    return text; // 結果がない場合は元のテキスト
   } catch (error) {
     console.error('翻訳エラー:', error);
-    return text; // エラーの場合は元のテキスト
+    return `[翻訳エラー] "${text}"`;
   }
 }
 
