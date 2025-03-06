@@ -7,7 +7,13 @@
     { "src": "*.js", "use": "@vercel/static" }
   ],
   "routes": [
+    { "src": "/api/detect", "dest": "/api/detect.js" },
+    { "src": "/api/translate", "dest": "/api/translate.js" },
+    { "src": "/api/katakana", "dest": "/api/katakana.js" },
     { "src": "/api/(.*)", "dest": "/api/$1" },
     { "src": "/(.*)", "dest": "/$1" }
-  ]
+  ],
+  "env": {
+    "HUGGINGFACE_API_KEY": "@huggingface_api_key"
+  }
 } 
