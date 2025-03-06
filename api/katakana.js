@@ -3,8 +3,8 @@ const axios = require('axios');
 // 環境変数からAPIキーを取得
 const API_KEY = process.env.HUGGINGFACE_API_KEY;
 
-// 言語検出モデル
-const LANGUAGE_DETECTION_MODEL = 'papluca/xlm-roberta-base-language-detection';
+// カタカナ変換用のモデル
+const KATAKANA_MODEL = 'facebook/m2m100_418M';
 
 module.exports = async (req, res) => {
   // CORSヘッダーを設定
@@ -27,18 +27,25 @@ module.exports = async (req, res) => {
   }
 
   try {
-    // リクエストボディからテキストを取得
-    const { text } = req.body;
+    // リクエストボディからパラメータを取得
+    const { text, sourceLanguage } = req.body;
 
     if (!text) {
       return res.status(400).json({ error: 'テキストが提供されていません' });
     }
 
-    // Hugging Face APIを呼び出して言語を検出する
+    // カタカナ変換用のプロンプト
+    const katakanaPrompt = `以下の文をカタカナ発音に変換してください: "${text}"`;
+
+    // Hugging Face APIを呼び出す
     const response = await axios.post(
-      `https://api-inference.huggingface.co/models/${LANGUAGE_DETECTION_MODEL}`,
+      `https://api-inference.huggingface.co/models/${KATAKANA_MODEL}`,
       {
-        inputs: text
+        inputs: katakanaPrompt,
+        parameters: {
+          source_lang: sourceLanguage,
+          target_lang: "ja"
+        }
       },
       {
         headers: {
@@ -49,23 +56,25 @@ module.exports = async (req, res) => {
     );
 
     // レスポンスを整形してクライアントに返す
-    let detectedLanguage = 'en'; // デフォルト言語
+    let katakana = '';
     
     if (response.data && response.data.length > 0) {
-      // 最も確率の高い言語を選択
-      const sortedLangs = [...response.data[0]].sort((a, b) => b.score - a.score);
-      if (sortedLangs.length > 0) {
-        detectedLanguage = sortedLangs[0].label;
+      katakana = response.data[0].generated_text;
+      
+      // カタカナ部分を抽出
+      const katakanaOnly = katakana.match(/[ァ-ヶー]+/g);
+      if (katakanaOnly && katakanaOnly.length > 0) {
+        katakana = katakanaOnly.join(' ');
       }
     }
 
     return res.status(200).json({ 
-      detectedLanguage: detectedLanguage 
+      katakana: katakana 
     });
   } catch (error) {
-    console.error('言語検出エラー:', error.response?.data || error.message);
+    console.error('カタカナ変換エラー:', error.response?.data || error.message);
     return res.status(500).json({
-      error: '言語検出中にエラーが発生しました',
+      error: 'カタカナ変換中にエラーが発生しました',
       details: error.response?.data || error.message
     });
   }

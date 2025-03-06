@@ -1,7 +1,18 @@
 const axios = require('axios');
 
 // 環境変数からAPIキーを取得
-const API_KEY = process.env.GOOGLE_TRANSLATE_API_KEY;
+const API_KEY = process.env.HUGGINGFACE_API_KEY;
+
+// 翻訳モデルのマッピング（言語コード → モデル名）
+const TRANSLATION_MODELS = {
+  'en': 'Helsinki-NLP/opus-mt-en-jap',  // 英語 → 日本語
+  'fr': 'Helsinki-NLP/opus-mt-fr-jap',  // フランス語 → 日本語
+  'de': 'Helsinki-NLP/opus-mt-de-jap',  // ドイツ語 → 日本語
+  'zh': 'Helsinki-NLP/opus-mt-zh-jap',  // 中国語 → 日本語
+  'ko': 'Helsinki-NLP/opus-mt-ko-jap',  // 韓国語 → 日本語
+  // 他の言語も必要に応じて追加
+  'default': 'Helsinki-NLP/opus-mt-en-jap' // デフォルトは英語→日本語
+};
 
 module.exports = async (req, res) => {
   // CORSヘッダーを設定
@@ -25,25 +36,38 @@ module.exports = async (req, res) => {
 
   try {
     // リクエストボディからパラメータを取得
-    const { text, source, target = 'ja' } = req.body;
+    const { text, sourceLanguage } = req.body;
 
     if (!text) {
       return res.status(400).json({ error: 'テキストが提供されていません' });
     }
 
-    // Google Translation APIを呼び出す
+    // 言語に合わせた翻訳モデルを選択
+    const model = TRANSLATION_MODELS[sourceLanguage] || TRANSLATION_MODELS.default;
+
+    // Hugging Face APIを呼び出す
     const response = await axios.post(
-      `https://translation.googleapis.com/language/translate/v2?key=${API_KEY}`,
+      `https://api-inference.huggingface.co/models/${model}`,
       {
-        q: text,
-        source: source || '',
-        target: target,
-        format: 'text'
+        inputs: text
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${API_KEY}`,
+          'Content-Type': 'application/json'
+        }
       }
     );
 
-    // レスポンスをクライアントに返す
-    return res.status(200).json(response.data);
+    // レスポンスを整形してクライアントに返す
+    let translatedText = '';
+    if (response.data && response.data.length > 0) {
+      translatedText = response.data[0].translation_text;
+    }
+
+    return res.status(200).json({ 
+      translatedText: translatedText 
+    });
   } catch (error) {
     console.error('翻訳エラー:', error.response?.data || error.message);
     return res.status(500).json({
