@@ -5,6 +5,9 @@ let kuroshiroInstance = null;
 let kuroshiroInitialized = false;
 let kuroshiroInitializing = false;
 
+// APIキー設定（一時的な実装）
+let HF_API_KEY = '';
+
 // 翻訳モデルのマッピング（言語コード → モデル名）
 const TRANSLATION_MODELS = {
   'en': 'Helsinki-NLP/opus-mt-en-jap',  // 英語 → 日本語
@@ -63,36 +66,58 @@ async function initKuroshiro() {
   }
 }
 
+// 直接Hugging Face APIを呼び出す（簡易版）
+async function callHuggingFaceAPI(model, data) {
+  try {
+    if (!HF_API_KEY) {
+      // APIキーが設定されていない場合、入力を求める
+      HF_API_KEY = prompt('Hugging Face APIキーを入力してください:');
+      if (!HF_API_KEY) {
+        throw new Error('APIキーが入力されていません');
+      }
+    }
+    
+    const response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${HF_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(data)
+    });
+    
+    if (!response.ok) {
+      throw new Error(`API呼び出しエラー: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error(`API呼び出しエラー (${model}):`, error);
+    throw error;
+  }
+}
+
 // 言語検出 API
 async function detectLanguage(text) {
   try {
     console.log('言語検出中...');
     
-    const baseUrl = getBaseUrl();
+    const model = 'papluca/xlm-roberta-base-language-detection';
+    const result = await callHuggingFaceAPI(model, { inputs: text });
     
-    // サーバーレス関数を使用して言語検出APIを呼び出す
-    const response = await fetch(`${baseUrl}/api/detect`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ text }),
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+    // レスポンスの処理
+    if (Array.isArray(result) && result.length > 0) {
+      // 最も確率の高い言語を選択
+      const sortedLangs = [...result[0]].sort((a, b) => b.score - a.score);
+      if (sortedLangs.length > 0) {
+        return sortedLangs[0].label;
+      }
     }
     
-    const data = await response.json();
-    
-    if (data.error) {
-      throw new Error(data.error);
-    }
-    
-    return data.detectedLanguage;
+    return 'en'; // デフォルト言語
   } catch (error) {
     console.error('言語検出エラー:', error);
-    throw error;
+    return 'en'; // エラーの場合はデフォルト言語
   }
 }
 
@@ -101,34 +126,26 @@ async function translateText(text, sourceLanguage) {
   try {
     console.log(`翻訳中... (${sourceLanguage || 'auto'} -> ja)`);
     
-    const baseUrl = getBaseUrl();
-    
-    // サーバーレス関数を使用して翻訳APIを呼び出す
-    const response = await fetch(`${baseUrl}/api/translate`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ 
-        text, 
-        sourceLanguage 
-      }),
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+    // 日本語の場合は翻訳不要
+    if (sourceLanguage === 'ja' || sourceLanguage === 'japanese') {
+      return text;
     }
     
-    const data = await response.json();
+    // 言語に合わせた翻訳モデルを選択
+    const model = TRANSLATION_MODELS[sourceLanguage] || TRANSLATION_MODELS.default;
+    const result = await callHuggingFaceAPI(model, { inputs: text });
     
-    if (data.error) {
-      throw new Error(data.error);
+    // 結果の処理
+    if (Array.isArray(result) && result.length > 0) {
+      return result[0].translation_text;
+    } else if (result && result.translation_text) {
+      return result.translation_text;
     }
     
-    return data.translatedText || '';
+    return text; // 結果がない場合は元のテキスト
   } catch (error) {
     console.error('翻訳エラー:', error);
-    throw error;
+    return text; // エラーの場合は元のテキスト
   }
 }
 
@@ -143,37 +160,24 @@ async function textToRomaji(text, sourceLanguage) {
         console.error('kuroshiroでのローマ字変換エラー:', error);
       }
     }
-    
-    // kuroshiroが使えない場合はAPIを使用
   }
   
   try {
-    const baseUrl = getBaseUrl();
+    // 簡易ローマ字変換（英語への翻訳で代用）
+    // 言語に合わせた翻訳モデルを選択
+    const model = 'Helsinki-NLP/opus-mt-mul-en'; // 多言語から英語への翻訳モデル
+    const result = await callHuggingFaceAPI(model, { inputs: text });
     
-    // サーバーレス関数を使用してローマ字変換APIを呼び出す
-    // 注: この機能のためのAPIエンドポイントをまだ作成していません
-    // 代わりに翻訳APIを利用して英語に翻訳することで代用
-    const response = await fetch(`${baseUrl}/api/translate`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ 
-        text, 
-        sourceLanguage,
-        targetLanguage: 'en'  // ローマ字の代わりに英語に変換
-      }),
-    });
-    
-    if (!response.ok) {
-      return text; // エラーの場合は元のテキストを返す
+    if (Array.isArray(result) && result.length > 0) {
+      return result[0].translation_text;
+    } else if (result && result.translation_text) {
+      return result.translation_text;
     }
     
-    const data = await response.json();
-    return data.translatedText || text;
+    return text;
   } catch (error) {
     console.error('ローマ字変換エラー:', error);
-    return text; // エラーの場合は元のテキストを返す
+    return text; // エラーの場合は元のテキスト
   }
 }
 
@@ -218,38 +222,32 @@ async function convertToKatakana(text, sourceLanguage) {
       }
     }
     
-    // サーバーレス関数を使ってカタカナ変換
+    // カタカナに変換（直接APIを呼び出し）
     try {
-      const baseUrl = getBaseUrl();
-      
-      const response = await fetch(`${baseUrl}/api/katakana`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          text, 
-          sourceLanguage 
-        }),
+      const katakanaPrompt = `以下の文をカタカナ発音に変換してください: "${text}"`;
+      const result = await callHuggingFaceAPI(KATAKANA_MODEL, { 
+        inputs: katakanaPrompt,
+        parameters: {
+          source_lang: sourceLanguage,
+          target_lang: "ja"
+        }
       });
       
-      if (!response.ok) {
-        return '翻訳結果: ' + translatedText;
+      if (Array.isArray(result) && result.length > 0) {
+        const generated = result[0].generated_text;
+        
+        // カタカナ部分を抽出
+        const katakanaOnly = generated.match(/[ァ-ヶー]+/g);
+        if (katakanaOnly && katakanaOnly.length > 0) {
+          return katakanaOnly.join(' ') + '\n\n（翻訳: ' + translatedText + '）';
+        }
+        
+        return generated + '\n\n（翻訳: ' + translatedText + '）';
       }
       
-      const data = await response.json();
-      
-      if (data.error) {
-        return '翻訳結果: ' + translatedText;
-      }
-      
-      if (data.katakana) {
-        return data.katakana + '\n\n（翻訳: ' + translatedText + '）';
-      } else {
-        return '翻訳結果: ' + translatedText;
-      }
+      return '翻訳結果: ' + translatedText;
     } catch (error) {
-      console.error('サーバーレス関数でのカタカナ変換エラー:', error);
+      console.error('カタカナAPI変換エラー:', error);
       return '翻訳結果: ' + translatedText;
     }
   } catch (error) {
@@ -258,9 +256,19 @@ async function convertToKatakana(text, sourceLanguage) {
   }
 }
 
+// APIキーを設定する関数
+function setHuggingFaceApiKey(apiKey) {
+  if (apiKey) {
+    HF_API_KEY = apiKey;
+    return true;
+  }
+  return false;
+}
+
 // モジュールのエクスポート
 window.huggingFaceClient = {
   detectLanguage,
   translateText,
-  convertToKatakana
+  convertToKatakana,
+  setHuggingFaceApiKey
 };
