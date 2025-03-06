@@ -42,37 +42,66 @@ module.exports = async (req, res) => {
       return res.status(400).json({ error: 'テキストが提供されていません' });
     }
 
-    // 言語に合わせた翻訳モデルを選択
-    const model = TRANSLATION_MODELS[sourceLanguage] || TRANSLATION_MODELS.default;
+    console.log('翻訳APIリクエスト:', { text, sourceLanguage }); // デバッグログ追加
 
-    // Hugging Face APIを呼び出す
-    const response = await axios.post(
-      `https://api-inference.huggingface.co/models/${model}`,
-      {
-        inputs: text
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${API_KEY}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-
-    // レスポンスを整形してクライアントに返す
-    let translatedText = '';
-    if (response.data && response.data.length > 0) {
-      translatedText = response.data[0].translation_text;
+    // APIキーチェック
+    if (!API_KEY) {
+      console.error('APIキーが設定されていません');
+      return res.status(500).json({ 
+        error: 'APIキーが設定されていません',
+        details: 'サーバー管理者にAPIキーの設定を依頼してください' 
+      });
     }
 
-    return res.status(200).json({ 
-      translatedText: translatedText 
-    });
+    try {
+      // 言語に合わせた翻訳モデルを選択
+      const model = TRANSLATION_MODELS[sourceLanguage] || TRANSLATION_MODELS.default;
+      console.log('選択された翻訳モデル:', model);
+
+      // Hugging Face APIを呼び出す
+      const response = await axios.post(
+        `https://api-inference.huggingface.co/models/${model}`,
+        {
+          inputs: text
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${API_KEY}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      console.log('APIレスポンス:', response.data); // デバッグログ追加
+
+      // レスポンスを整形してクライアントに返す
+      let translatedText = '';
+      if (response.data && response.data.length > 0) {
+        translatedText = response.data[0].translation_text;
+      }
+
+      return res.status(200).json({ 
+        translatedText: translatedText,
+        success: true 
+      });
+    } catch (apiError) {
+      console.error('Hugging Face API呼び出しエラー:', apiError.message);
+      if (apiError.response) {
+        console.error('APIレスポンス:', apiError.response.data);
+      }
+      
+      // APIエラーでもレスポンスを返す
+      return res.status(200).json({ 
+        translatedText: `[翻訳エラー: ${apiError.message}]`,
+        success: false,
+        apiError: apiError.message
+      });
+    }
   } catch (error) {
-    console.error('翻訳エラー:', error.response?.data || error.message);
+    console.error('翻訳エラー:', error.message);
     return res.status(500).json({
       error: '翻訳中にエラーが発生しました',
-      details: error.response?.data || error.message
+      details: error.message
     });
   }
 }; 

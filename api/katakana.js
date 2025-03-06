@@ -34,48 +34,76 @@ module.exports = async (req, res) => {
       return res.status(400).json({ error: 'テキストが提供されていません' });
     }
 
-    // カタカナ変換用のプロンプト
-    const katakanaPrompt = `以下の文をカタカナ発音に変換してください: "${text}"`;
+    console.log('カタカナ変換APIリクエスト:', { text, sourceLanguage }); // デバッグログ追加
 
-    // Hugging Face APIを呼び出す
-    const response = await axios.post(
-      `https://api-inference.huggingface.co/models/${KATAKANA_MODEL}`,
-      {
-        inputs: katakanaPrompt,
-        parameters: {
-          source_lang: sourceLanguage,
-          target_lang: "ja"
-        }
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${API_KEY}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-
-    // レスポンスを整形してクライアントに返す
-    let katakana = '';
-    
-    if (response.data && response.data.length > 0) {
-      katakana = response.data[0].generated_text;
-      
-      // カタカナ部分を抽出
-      const katakanaOnly = katakana.match(/[ァ-ヶー]+/g);
-      if (katakanaOnly && katakanaOnly.length > 0) {
-        katakana = katakanaOnly.join(' ');
-      }
+    // APIキーチェック
+    if (!API_KEY) {
+      console.error('APIキーが設定されていません');
+      return res.status(500).json({ 
+        error: 'APIキーが設定されていません',
+        details: 'サーバー管理者にAPIキーの設定を依頼してください' 
+      });
     }
 
-    return res.status(200).json({ 
-      katakana: katakana 
-    });
+    try {
+      // カタカナ変換用のプロンプト
+      const katakanaPrompt = `以下の文をカタカナ発音に変換してください: "${text}"`;
+
+      // Hugging Face APIを呼び出す
+      const response = await axios.post(
+        `https://api-inference.huggingface.co/models/${KATAKANA_MODEL}`,
+        {
+          inputs: katakanaPrompt,
+          parameters: {
+            source_lang: sourceLanguage,
+            target_lang: "ja"
+          }
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${API_KEY}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      console.log('APIレスポンス:', response.data); // デバッグログ追加
+
+      // レスポンスを整形してクライアントに返す
+      let katakana = '';
+      
+      if (response.data && response.data.length > 0) {
+        katakana = response.data[0].generated_text;
+        
+        // カタカナ部分を抽出
+        const katakanaOnly = katakana.match(/[ァ-ヶー]+/g);
+        if (katakanaOnly && katakanaOnly.length > 0) {
+          katakana = katakanaOnly.join(' ');
+        }
+      }
+
+      return res.status(200).json({ 
+        katakana: katakana,
+        success: true
+      });
+    } catch (apiError) {
+      console.error('Hugging Face API呼び出しエラー:', apiError.message);
+      if (apiError.response) {
+        console.error('APIレスポンス:', apiError.response.data);
+      }
+      
+      // APIエラーでもレスポンスを返す
+      return res.status(200).json({ 
+        katakana: `[カタカナ変換エラー: ${apiError.message}]`,
+        success: false,
+        apiError: apiError.message
+      });
+    }
   } catch (error) {
-    console.error('カタカナ変換エラー:', error.response?.data || error.message);
+    console.error('カタカナ変換エラー:', error.message);
     return res.status(500).json({
       error: 'カタカナ変換中にエラーが発生しました',
-      details: error.response?.data || error.message
+      details: error.message
     });
   }
 }; 

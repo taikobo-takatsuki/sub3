@@ -72,3 +72,8 @@
 ## ライセンス
 
 MITライセンス 
+
+## 変更点
+
+- 変換APIのURLをhttp://localhost:3000/api/translateに変更
+- 言語検出APIのURLをhttp://localhost:3000/api/detectに変更 
