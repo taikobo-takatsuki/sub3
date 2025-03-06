@@ -1,7 +1,12 @@
 // Hugging Face Translation API クライアント
 
 // APIキー（Vercelの環境変数または開発用の一時的な設定）
-const HF_API_KEY = ''; // ここにHugging Face APIキーを設定
+let HF_API_KEY = ''; // ここにHugging Face APIキーを設定
+
+// kuroshiroのインスタンス
+let kuroshiroInstance = null;
+let kuroshiroInitialized = false;
+let kuroshiroInitializing = false;
 
 // 翻訳モデルのマッピング（言語コード → モデル名）
 const TRANSLATION_MODELS = {
@@ -16,6 +21,46 @@ const TRANSLATION_MODELS = {
 
 // カタカナ変換用のモデル
 const KATAKANA_MODEL = 'facebook/m2m100_418M'; // 多言語翻訳モデル（カタカナ変換用）
+
+// kuroshiroの初期化
+async function initKuroshiro() {
+  if (kuroshiroInitialized) {
+    return kuroshiroInstance;
+  }
+
+  if (kuroshiroInitializing) {
+    // 別の初期化が進行中の場合は待機
+    while (kuroshiroInitializing) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    return kuroshiroInstance;
+  }
+
+  try {
+    kuroshiroInitializing = true;
+
+    // kuroshiroが利用可能か確認
+    if (typeof Kuroshiro === 'undefined') {
+      console.error('Kuroshiroライブラリが見つかりません。');
+      kuroshiroInitializing = false;
+      return null;
+    }
+
+    // kuroshiroインスタンスの作成と初期化
+    kuroshiroInstance = new Kuroshiro();
+    await kuroshiroInstance.init(new KuromojiAnalyzer());
+    
+    kuroshiroInitialized = true;
+    console.log('Kuroshiroの初期化が完了しました。');
+  } catch (error) {
+    console.error('Kuroshiroの初期化エラー:', error);
+    kuroshiroInstance = null;
+  } finally {
+    kuroshiroInitializing = false;
+  }
+
+  return kuroshiroInstance;
+}
 
 // 言語検出関数
 async function detectLanguage(text) {
@@ -89,7 +134,49 @@ async function translateText(text, sourceLanguage) {
   }
 }
 
-// カタカナ変換関数
+// テキストをローマ字に変換（多言語対応）
+async function textToRomaji(text, sourceLanguage) {
+  // 言語に応じたローマ字化の処理
+  // 実際の実装ではより複雑な処理が必要になる場合があります
+  
+  try {
+    // HFモデルでローマ字化を試みる
+    const romajiPrompt = `Transliterate the following text to romaji: "${text}"`;
+    
+    const response = await fetch(
+      `https://api-inference.huggingface.co/models/facebook/m2m100_418M`,
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${HF_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ 
+          inputs: romajiPrompt,
+          parameters: {
+            source_lang: sourceLanguage,
+            target_lang: "en"
+          }
+        })
+      }
+    );
+    
+    const result = await response.json();
+    
+    if (result.error) {
+      // 失敗した場合、単純に元のテキストを返す
+      return text;
+    }
+    
+    // 結果から英語/ローマ字部分を抽出
+    return result[0].generated_text;
+  } catch (error) {
+    console.error('ローマ字変換エラー:', error);
+    return text; // エラー時は元のテキストを返す
+  }
+}
+
+// カタカナに変換する関数
 async function convertToKatakana(text, sourceLanguage) {
   try {
     // 日本語の場合は変換不要
@@ -97,11 +184,46 @@ async function convertToKatakana(text, sourceLanguage) {
       return 'すでに日本語です。カタカナ変換は不要です。';
     }
     
-    // 直接カタカナに変換するのは難しいため、簡易的な方法を使用
-    // 1. 原文を保持して翻訳を取得
+    // 1. 翻訳結果を取得（後で使用）
     const translation = await translateText(text, sourceLanguage);
     
-    // 2. 専用のプロンプトでカタカナ表記を要求
+    // 2. kuroshiroを初期化
+    const kuroshiro = await initKuroshiro();
+    
+    if (kuroshiro) {
+      // kuroshiroが利用可能な場合
+      try {
+        // 翻訳された日本語をカタカナに変換
+        const katakana = await kuroshiro.convert(translation, {
+          to: 'katakana',
+          mode: 'normal'
+        });
+        
+        // 発音に関する追加情報
+        // 原文をローマ字に変換してみる
+        const romaji = await textToRomaji(text, sourceLanguage);
+        
+        if (romaji && romaji !== text) {
+          // ローマ字変換できた場合、それもカタカナに変換
+          const romajiKatakana = await kuroshiro.convert(romaji, {
+            to: 'katakana',
+            mode: 'spaced'
+          });
+          
+          // 結合して返す（翻訳のカタカナ + ローマ字のカタカナ）
+          return `${katakana}\n\n発音の目安: ${romajiKatakana}`;
+        }
+        
+        return katakana;
+      } catch (kuroshiroError) {
+        console.error('Kuroshiro変換エラー:', kuroshiroError);
+        // kuroshiroでエラーが発生した場合、代替手段を使用
+      }
+    }
+    
+    // kuroshiroが利用できない、またはエラーの場合は代替手段を使用
+    
+    // 3. Hugging Faceを使用した代替手段
     const katakanaPrompt = `以下の文をカタカナ発音に変換してください: "${text}"`;
     
     const response = await fetch(
@@ -126,16 +248,22 @@ async function convertToKatakana(text, sourceLanguage) {
     
     // エラーチェック
     if (result.error) {
-      // 代替手段: 翻訳結果に「カタカナ表記：」を追加
-      return `「${text}」のカタカナ表記は対応していません。`;
+      // エラーの場合、翻訳結果をそのまま返す
+      return `「${text}」 → ${translation}（カタカナ変換は現在利用できません）`;
     }
     
-    // 結果からカタカナ部分を抽出
+    // 結果からカタカナを抽出
     const katakana = result[0].generated_text;
-    return katakana.replace(/[^\u30A0-\u30FF]/g, ''); // カタカナ以外の文字を削除
+    const katakanaOnly = katakana.match(/[ァ-ヶー]+/g);
+    
+    if (katakanaOnly && katakanaOnly.length > 0) {
+      return katakanaOnly.join(' ');
+    } else {
+      return `「${text}」のカタカナ表記: ${katakana}`;
+    }
   } catch (error) {
     console.error('カタカナ変換エラー:', error);
-    return `「${text}」のカタカナ表記の取得に失敗しました。`;
+    return `「${text}」のカタカナ表記の取得に失敗しました: ${error.message}`;
   }
 }
 
