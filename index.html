@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>多言語カタカナ変換</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>多言語カタカナ変換</h1>
+        <div class="description">
+            <p>外国語を入力すると、日本語訳とカタカナ発音が表示されます。</p>
+        </div>
+
+        <div class="input-section">
+            <textarea id="input-text" placeholder="ここに外国語を入力してください..."></textarea>
+            <div class="button-group">
+                <button id="translate-btn">翻訳＆カタカナ変換</button>
+            </div>
+        </div>
+
+        <div class="result-section">
+            <div class="result-box">
+                <h2>日本語訳</h2>
+                <div id="translation-result" class="result-content"></div>
+            </div>
+            <div class="result-box">
+                <h2>カタカナ発音</h2>
+                <div id="katakana-result" class="result-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+</body>
+</html> 
