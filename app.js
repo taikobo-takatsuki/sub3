@@ -40,60 +40,94 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 言語を検出する関数
     async function detectLanguage(text) {
-        if (!CONFIG.API_KEY) {
-            throw new Error('APIキーが設定されていません');
-        }
-
-        const response = await fetch(`${CONFIG.DETECT_API_URL}?key=${CONFIG.API_KEY}`, {
+        // リクエストのボディとヘッダー
+        const requestOptions = {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                q: text
-            })
-        });
+            body: JSON.stringify({ text })
+        };
 
-        const data = await response.json();
-        
-        if (data.error) {
-            throw new Error(data.error.message || '言語検出に失敗しました');
+        // ローカル環境の場合はAPIキーを追加
+        if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+            if (!CONFIG.API_KEY) {
+                throw new Error('APIキーが設定されていません');
+            }
+            // ローカル環境では直接Google APIを使用
+            requestOptions.body = JSON.stringify({ q: text });
+            const response = await fetch(`${CONFIG.DETECT_API_URL}?key=${CONFIG.API_KEY}`, requestOptions);
+            const data = await response.json();
+            
+            if (data.error) {
+                throw new Error(data.error.message || '言語検出に失敗しました');
+            }
+            
+            return data.data.detections[0][0].language;
+        } else {
+            // 本番環境ではサーバーレス関数を使用
+            const response = await fetch(CONFIG.DETECT_API_URL, requestOptions);
+            const data = await response.json();
+            
+            if (data.error) {
+                throw new Error(data.error.message || '言語検出に失敗しました');
+            }
+            
+            return data.data.detections[0][0].language;
         }
-
-        return data.data.detections[0][0].language;
     }
 
     // テキストを翻訳する関数
     async function translateText(text, sourceLanguage) {
-        if (!CONFIG.API_KEY) {
-            throw new Error('APIキーが設定されていません');
-        }
-
         // すでに日本語の場合は翻訳をスキップ
         if (sourceLanguage === 'ja') {
             return text;
         }
 
-        const response = await fetch(`${CONFIG.TRANSLATE_API_URL}?key=${CONFIG.API_KEY}`, {
+        // リクエストのボディとヘッダー
+        const requestOptions = {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
+            }
+        };
+
+        // ローカル環境の場合はAPIキーを追加
+        if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+            if (!CONFIG.API_KEY) {
+                throw new Error('APIキーが設定されていません');
+            }
+            // ローカル環境では直接Google APIを使用
+            requestOptions.body = JSON.stringify({
                 q: text,
                 source: sourceLanguage,
                 target: 'ja',
                 format: 'text'
-            })
-        });
-
-        const data = await response.json();
-        
-        if (data.error) {
-            throw new Error(data.error.message || '翻訳に失敗しました');
+            });
+            const response = await fetch(`${CONFIG.TRANSLATE_API_URL}?key=${CONFIG.API_KEY}`, requestOptions);
+            const data = await response.json();
+            
+            if (data.error) {
+                throw new Error(data.error.message || '翻訳に失敗しました');
+            }
+            
+            return data.data.translations[0].translatedText;
+        } else {
+            // 本番環境ではサーバーレス関数を使用
+            requestOptions.body = JSON.stringify({
+                text,
+                source: sourceLanguage,
+                target: 'ja'
+            });
+            const response = await fetch(CONFIG.TRANSLATE_API_URL, requestOptions);
+            const data = await response.json();
+            
+            if (data.error) {
+                throw new Error(data.error.message || '翻訳に失敗しました');
+            }
+            
+            return data.data.translations[0].translatedText;
         }
-
-        return data.data.translations[0].translatedText;
     }
 
     // カタカナに変換する関数

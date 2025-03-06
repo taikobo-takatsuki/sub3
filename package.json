@@ -1,0 +1,19 @@
+{
+  "name": "multi-language-katakana-converter",
+  "version": "1.0.0",
+  "description": "外国語を日本語に翻訳し、カタカナ表記に変換するアプリケーション",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vercel dev",
+    "build": "vercel build",
+    "deploy": "vercel deploy --prod"
+  },
+  "dependencies": {
+    "axios": "^0.27.2"
+  },
+  "devDependencies": {
+    "vercel": "^28.0.0"
+  },
+  "author": "",
+  "license": "MIT"
+} 

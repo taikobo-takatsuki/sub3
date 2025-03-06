@@ -2,8 +2,9 @@
 const CONFIG = {
     // 環境変数またはlocalStorageから取得（実際のAPIキーはここに直接書かない）
     API_KEY: '',
-    TRANSLATE_API_URL: 'https://translation.googleapis.com/language/translate/v2',
-    DETECT_API_URL: 'https://translation.googleapis.com/language/translate/v2/detect',
+    // 本番環境では自分のサーバーレス関数のエンドポイントを使用
+    TRANSLATE_API_URL: '/api/translate',
+    DETECT_API_URL: '/api/detect',
 };
 
 // ローカル開発時のみ使用する関数（本番環境では使用しない）
@@ -21,10 +22,11 @@ function setupDevEnvironment() {
     } else {
         CONFIG.API_KEY = savedApiKey;
     }
+    
+    // ローカル環境では直接Google APIを使用
+    CONFIG.TRANSLATE_API_URL = 'https://translation.googleapis.com/language/translate/v2';
+    CONFIG.DETECT_API_URL = 'https://translation.googleapis.com/language/translate/v2/detect';
 }
-
-// 本番環境では環境変数から取得する例
-// CONFIG.API_KEY = process.env.GOOGLE_TRANSLATE_API_KEY;
 
 // 開発環境でのみAPIキーの設定を行う
 if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
