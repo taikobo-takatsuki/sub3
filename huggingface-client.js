@@ -19,6 +19,20 @@ const TRANSLATION_MODELS = {
 // カタカナ変換用のモデル
 const KATAKANA_MODEL = 'facebook/m2m100_418M'; // 多言語翻訳モデル（カタカナ変換用）
 
+// ベースURLの取得（ローカル開発か本番環境かを自動判別）
+const getBaseUrl = () => {
+  const host = window.location.host;
+  const protocol = window.location.protocol;
+  
+  // ローカル開発環境の場合
+  if (host.includes('localhost') || host.includes('127.0.0.1')) {
+    return '';  // 相対パスを使用
+  }
+  
+  // Vercel環境の場合
+  return `${protocol}//${host}`;
+};
+
 // kuroshiroを初期化
 async function initKuroshiro() {
   if (kuroshiroInitialized) return true;
@@ -54,8 +68,10 @@ async function detectLanguage(text) {
   try {
     console.log('言語検出中...');
     
+    const baseUrl = getBaseUrl();
+    
     // サーバーレス関数を使用して言語検出APIを呼び出す
-    const response = await fetch('/api/detect', {
+    const response = await fetch(`${baseUrl}/api/detect`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -85,8 +101,10 @@ async function translateText(text, sourceLanguage) {
   try {
     console.log(`翻訳中... (${sourceLanguage || 'auto'} -> ja)`);
     
+    const baseUrl = getBaseUrl();
+    
     // サーバーレス関数を使用して翻訳APIを呼び出す
-    const response = await fetch('/api/translate', {
+    const response = await fetch(`${baseUrl}/api/translate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -130,10 +148,12 @@ async function textToRomaji(text, sourceLanguage) {
   }
   
   try {
+    const baseUrl = getBaseUrl();
+    
     // サーバーレス関数を使用してローマ字変換APIを呼び出す
     // 注: この機能のためのAPIエンドポイントをまだ作成していません
     // 代わりに翻訳APIを利用して英語に翻訳することで代用
-    const response = await fetch('/api/translate', {
+    const response = await fetch(`${baseUrl}/api/translate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -200,7 +220,9 @@ async function convertToKatakana(text, sourceLanguage) {
     
     // サーバーレス関数を使ってカタカナ変換
     try {
-      const response = await fetch('/api/katakana', {
+      const baseUrl = getBaseUrl();
+      
+      const response = await fetch(`${baseUrl}/api/katakana`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
